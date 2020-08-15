@@ -3,6 +3,7 @@
 #include <fstream>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 
 
 #define ASSERT_VULKAN(val)\
@@ -15,7 +16,8 @@ VkResult result;
 VkInstance instance;
 VkDevice device;
 VkSurfaceKHR surface;
-VkSwapchainKHR swapchain;
+VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+VkPhysicalDevice* physicalDevices;
 VkQueue queue;
 VkImageView* imageViews;
 VkShaderModule shaderModuleVert;
@@ -33,10 +35,35 @@ const VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
 
 GLFWwindow* window;
 
-const uint32_t WIDTH = 400;
-const uint32_t HEIGHT = 300;
-
+uint32_t globalWidth = 400;
+uint32_t globalHeight = 300;
 uint32_t amountOfImagesInSwapchain = 0;
+
+void recreateSwapchain();
+
+
+class Vertex {
+public:
+	glm::vec2 pos;
+	glm::vec3 color;
+
+	Vertex(glm::vec2 _pos, glm::vec3 _color) : pos(_pos), color(_color) {}
+
+	static VkVertexInputBindingDescription getBindingDescription() {
+		VkVertexInputBindingDescription vertexInputBindingDescription;
+		vertexInputBindingDescription.binding = 0;
+		vertexInputBindingDescription.stride = sizeof(Vertex);
+		vertexInputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+		return vertexInputBindingDescription;
+	}
+};
+
+std::vector<Vertex> verticies = {
+	Vertex({ 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f }),
+	Vertex({ 0.5f, 5.0f },  { 0.0f, 1.0f, 0.0f }),
+	Vertex({ -0.5f, 5.0f }, { 0.0f, 0.0f, 1.0f })
+};
 
 
 void printStats(VkPhysicalDevice &device) {
@@ -129,12 +156,22 @@ void printStats(VkPhysicalDevice &device) {
 	delete[] presentModes;
 }
 
+void onWindowResized(GLFWwindow* window, int width, int height) {
+	if (width <= 0 || height <= 0) return;
+
+	globalWidth = width;
+	globalHeight = height;
+
+	recreateSwapchain();
+}
+
 void startGLFW() {
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Tutorial", nullptr, nullptr);
+	window = glfwCreateWindow(globalWidth, globalHeight, "Vulkan Tutorial", nullptr, nullptr);
+	glfwSetWindowSizeCallback(window, onWindowResized);
 }
 
 std::vector<char> readFile(const std::string &filename) {
@@ -163,50 +200,15 @@ void createShaderModule(const std::vector<char>& code, VkShaderModule *shaderMod
 	ASSERT_VULKAN(result);
 }
 
-void startVulkan() {
+void createInstance() {
 	VkApplicationInfo appInfo;
-	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO; 
+	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	appInfo.pNext = nullptr;
 	appInfo.pApplicationName = "Vulkan Tutorial";
 	appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0); // Version 0.1.0
 	appInfo.pEngineName = "Tutorial Engine";
 	appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
 	appInfo.apiVersion = VK_API_VERSION_1_1;
-
-	
-	uint32_t amountOfLayers = 0;
-	result = vkEnumerateInstanceLayerProperties(&amountOfLayers, nullptr);
-	ASSERT_VULKAN(result);
-	VkLayerProperties* layers = new VkLayerProperties[amountOfLayers];
-	result = vkEnumerateInstanceLayerProperties(&amountOfLayers, layers);
-	ASSERT_VULKAN(result);
-
-	std::cout << "Amount of Instance Layers: " << amountOfLayers << std::endl;
-	for (int i = 0; i < amountOfLayers; i++) {
-		std::cout << "Layer #" << i << std::endl;
-		std::cout << "\tName:         " << layers[i].layerName << std::endl;
-		std::cout << "\tSpec Version: " << layers[i].specVersion << std::endl;
-		std::cout << "\tImpl Version: " << layers[i].implementationVersion << std::endl;
-		std::cout << "\tDescription:  " << layers[i].description << std::endl;
-	}
-	std::cout << std::endl;
-	
-	
-	uint32_t amountOfExtentions = 0;
-	result = vkEnumerateInstanceExtensionProperties(nullptr, &amountOfExtentions, nullptr);
-	ASSERT_VULKAN(result);
-	VkExtensionProperties* extentions = new VkExtensionProperties[amountOfExtentions];
-	result = vkEnumerateInstanceExtensionProperties(nullptr, &amountOfExtentions, extentions);
-	ASSERT_VULKAN(result);
-
-	std::cout << "Amount of Extentions: " << amountOfExtentions << std::endl;
-	for (int i = 0; i < amountOfExtentions; i++) {
-		std::cout << "Extention #" << i << std::endl;
-		std::cout << "\tExtention Name: " << extentions[i].extensionName << std::endl;
-		std::cout << "\tSpec Version  : " << extentions[i].specVersion << std::endl;
-	}
-	std::cout << std::endl;
-	
 
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_KHRONOS_validation"
@@ -227,16 +229,54 @@ void startVulkan() {
 
 	result = vkCreateInstance(&instanceInfo, nullptr, &instance);
 	ASSERT_VULKAN(result);
+}
 
-	result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+void printInstanceLayers() {
+	uint32_t amountOfLayers = 0;
+	result = vkEnumerateInstanceLayerProperties(&amountOfLayers, nullptr);
+	ASSERT_VULKAN(result);
+	VkLayerProperties* layers = new VkLayerProperties[amountOfLayers];
+	result = vkEnumerateInstanceLayerProperties(&amountOfLayers, layers);
 	ASSERT_VULKAN(result);
 
+	std::cout << "Amount of Instance Layers: " << amountOfLayers << std::endl;
+	for (int i = 0; i < amountOfLayers; i++) {
+		std::cout << "Layer #" << i << std::endl;
+		std::cout << "\tName:         " << layers[i].layerName << std::endl;
+		std::cout << "\tSpec Version: " << layers[i].specVersion << std::endl;
+		std::cout << "\tImpl Version: " << layers[i].implementationVersion << std::endl;
+		std::cout << "\tDescription:  " << layers[i].description << std::endl;
+	}
+	std::cout << std::endl;
+	
+	delete[] layers;
+}
 
+void printInstanceExtensions() {
+	uint32_t amountOfExtentions = 0;
+	result = vkEnumerateInstanceExtensionProperties(nullptr, &amountOfExtentions, nullptr);
+	ASSERT_VULKAN(result);
+	VkExtensionProperties* extentions = new VkExtensionProperties[amountOfExtentions];
+	result = vkEnumerateInstanceExtensionProperties(nullptr, &amountOfExtentions, extentions);
+	ASSERT_VULKAN(result);
+
+	std::cout << "Amount of Extentions: " << amountOfExtentions << std::endl;
+	for (int i = 0; i < amountOfExtentions; i++) {
+		std::cout << "Extention #" << i << std::endl;
+		std::cout << "\tExtention Name: " << extentions[i].extensionName << std::endl;
+		std::cout << "\tSpec Version  : " << extentions[i].specVersion << std::endl;
+	}
+	std::cout << std::endl;
+
+	delete[] extentions;
+}
+
+void printStatsOfAllPhysicalDevices() {
 	uint32_t amountOfPhysicalDevices = 0;
 	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, nullptr);
 	ASSERT_VULKAN(result);
 
-	VkPhysicalDevice* physicalDevices = new VkPhysicalDevice[amountOfPhysicalDevices];
+	physicalDevices = new VkPhysicalDevice[amountOfPhysicalDevices];
 
 	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, physicalDevices);
 	ASSERT_VULKAN(result);
@@ -245,7 +285,9 @@ void startVulkan() {
 	for (int i = 0; i < amountOfPhysicalDevices; i++) {
 		printStats(physicalDevices[i]);
 	}
+}
 
+void createLogicalDevice() {
 	float queuePriorities[] = { 1.f };
 
 	VkDeviceQueueCreateInfo deviceQueueCreateInfo;
@@ -277,9 +319,9 @@ void startVulkan() {
 
 	result = vkCreateDevice(physicalDevices[0], &deviceCreateInfo, nullptr, &device); // TODO wie immer dynamisch ist besser
 	ASSERT_VULKAN(result);
+}
 
-	vkGetDeviceQueue(device, 0, 0, &queue);
-
+void checkSurfaceSupport() {
 	VkBool32 surfaceSupport = false;
 	result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[0], 0, surface, &surfaceSupport);
 	ASSERT_VULKAN(result);
@@ -289,6 +331,10 @@ void startVulkan() {
 		__debugbreak();
 	}
 
+	delete[] physicalDevices;
+}
+
+void createSwapchain() {
 	/*
 	Nicht best practice. In einem richtigen Program sollte wie immer alles dynamisch eingetragen werden je nach dem
 	was halt auf dem system unterstützt wird.
@@ -301,7 +347,7 @@ void startVulkan() {
 	swapchainCreateInfo.minImageCount = 3; // TODO civ
 	swapchainCreateInfo.imageFormat = format; // TODO civ
 	swapchainCreateInfo.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR; // TODO civ
-	swapchainCreateInfo.imageExtent = VkExtent2D{ WIDTH, HEIGHT };
+	swapchainCreateInfo.imageExtent = VkExtent2D{ globalWidth, globalHeight };
 	swapchainCreateInfo.imageArrayLayers = 1;
 	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // TODO civ
@@ -311,11 +357,13 @@ void startVulkan() {
 	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // TODO civ
 	swapchainCreateInfo.clipped = VK_TRUE;
-	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	swapchainCreateInfo.oldSwapchain = swapchain;
 
 	result = vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain);
 	ASSERT_VULKAN(result);
+}
 
+void createImageViews() {
 	result = vkGetSwapchainImagesKHR(device, swapchain, &amountOfImagesInSwapchain, nullptr);
 	ASSERT_VULKAN(result);
 	VkImage* swapchainImages = new VkImage[amountOfImagesInSwapchain];
@@ -345,6 +393,62 @@ void startVulkan() {
 		ASSERT_VULKAN(result);
 	}
 
+	delete[] swapchainImages;
+}
+
+void createRenderpass() {
+	VkAttachmentDescription attachmentDescription;
+	attachmentDescription.flags = 0;
+	attachmentDescription.format = format;
+	attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+	attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference attachmentReference;
+	attachmentReference.attachment = 0;
+	attachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpassDescription;
+	subpassDescription.flags = 0;
+	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDescription.inputAttachmentCount = 0;
+	subpassDescription.pInputAttachments = nullptr;
+	subpassDescription.colorAttachmentCount = 1;
+	subpassDescription.pColorAttachments = &attachmentReference;
+	subpassDescription.pResolveAttachments = nullptr;
+	subpassDescription.pDepthStencilAttachment = nullptr;
+	subpassDescription.preserveAttachmentCount = 0;
+	subpassDescription.pPreserveAttachments = nullptr;
+
+	VkSubpassDependency subpassDependency;
+	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependency.dstSubpass = 0;
+	subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependency.srcAccessMask = 0;
+	subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	subpassDependency.dependencyFlags = 0;
+
+	VkRenderPassCreateInfo renderPassCreateInfo;
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.pNext = nullptr;
+	renderPassCreateInfo.flags = 0;
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = &attachmentDescription;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpassDescription;
+	renderPassCreateInfo.dependencyCount = 1;
+	renderPassCreateInfo.pDependencies = &subpassDependency;
+
+	result = vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass);
+	ASSERT_VULKAN(result);
+}
+
+void createPipeline() {
 	/*
 	WARUM SOLLTE DER PATH RELATIV ZUR PROJECT SOLUTION SEIN UND NICHT ZUR AUSGEFÜHRTEN EXE AHHHHHHHHHHHHHHHHHHHHHHH
 	FICK
@@ -398,14 +502,14 @@ void startVulkan() {
 	VkViewport viewport;
 	viewport.x = 0.0f;
 	viewport.y = 0.0f;
-	viewport.width = WIDTH;
-	viewport.height = HEIGHT;
+	viewport.width = globalWidth;
+	viewport.height = globalHeight;
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 
 	VkRect2D scissor;
 	scissor.offset = { 0, 0 };
-	scissor.extent = { WIDTH, HEIGHT };
+	scissor.extent = { globalWidth, globalHeight };
 
 	VkPipelineViewportStateCreateInfo viewportStateCreateInfo;
 	viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -465,6 +569,18 @@ void startVulkan() {
 	colorBlendCreateInfo.blendConstants[2] = 0.0f;
 	colorBlendCreateInfo.blendConstants[3] = 0.0f;
 
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+
+	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo;
+	dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicStateCreateInfo.pNext = nullptr;
+	dynamicStateCreateInfo.flags = 0;
+	dynamicStateCreateInfo.dynamicStateCount = 2;
+	dynamicStateCreateInfo.pDynamicStates = dynamicStates;
+
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo;
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutCreateInfo.pNext = nullptr;
@@ -475,56 +591,6 @@ void startVulkan() {
 	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
 
 	result = vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
-	ASSERT_VULKAN(result);
-
-	VkAttachmentDescription attachmentDescription;
-	attachmentDescription.flags = 0;
-	attachmentDescription.format = format;
-	attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-	attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkAttachmentReference attachmentReference;
-	attachmentReference.attachment = 0;
-	attachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkSubpassDescription subpassDescription;
-	subpassDescription.flags = 0;
-	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpassDescription.inputAttachmentCount = 0;
-	subpassDescription.pInputAttachments = nullptr;
-	subpassDescription.colorAttachmentCount = 1;
-	subpassDescription.pColorAttachments = &attachmentReference;
-	subpassDescription.pResolveAttachments = nullptr;
-	subpassDescription.pDepthStencilAttachment = nullptr;
-	subpassDescription.preserveAttachmentCount = 0;
-	subpassDescription.pPreserveAttachments = nullptr;
-
-	VkSubpassDependency subpassDependency;
-	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL; 
-	subpassDependency.dstSubpass = 0;
-	subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependency.srcAccessMask = 0;
-	subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	subpassDependency.dependencyFlags = 0;
-
-	VkRenderPassCreateInfo renderPassCreateInfo;
-	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.pNext = nullptr;
-	renderPassCreateInfo.flags = 0;
-	renderPassCreateInfo.attachmentCount = 1;
-	renderPassCreateInfo.pAttachments = &attachmentDescription;
-	renderPassCreateInfo.subpassCount = 1;
-	renderPassCreateInfo.pSubpasses = &subpassDescription;
-	renderPassCreateInfo.dependencyCount = 1;
-	renderPassCreateInfo.pDependencies = &subpassDependency;
-
-	result = vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass);
 	ASSERT_VULKAN(result);
 
 	VkGraphicsPipelineCreateInfo pipelineCreateInfo;
@@ -541,7 +607,7 @@ void startVulkan() {
 	pipelineCreateInfo.pMultisampleState = &multisampleStateCreateInfo;
 	pipelineCreateInfo.pDepthStencilState = nullptr;
 	pipelineCreateInfo.pColorBlendState = &colorBlendCreateInfo;
-	pipelineCreateInfo.pDynamicState = nullptr;
+	pipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
 	pipelineCreateInfo.layout = pipelineLayout;
 	pipelineCreateInfo.renderPass = renderPass;
 	pipelineCreateInfo.subpass = 0;
@@ -550,7 +616,9 @@ void startVulkan() {
 
 	result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline);
 	ASSERT_VULKAN(result);
+}
 
+void createFrameBuffers() {
 	framebuffers = new VkFramebuffer[amountOfImagesInSwapchain];
 	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
 		VkFramebufferCreateInfo framebufferCreateInfo;
@@ -560,14 +628,16 @@ void startVulkan() {
 		framebufferCreateInfo.renderPass = renderPass;
 		framebufferCreateInfo.attachmentCount = 1;
 		framebufferCreateInfo.pAttachments = &(imageViews[i]);
-		framebufferCreateInfo.width = WIDTH;
-		framebufferCreateInfo.height = HEIGHT;
+		framebufferCreateInfo.width = globalWidth;
+		framebufferCreateInfo.height = globalHeight;
 		framebufferCreateInfo.layers = 1;
 
 		result = vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &(framebuffers[i]));
 		ASSERT_VULKAN(result);
 	}
+}
 
+void createCommandPool() {
 	VkCommandPoolCreateInfo commandPoolCreateinfo;
 	commandPoolCreateinfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	commandPoolCreateinfo.pNext = nullptr;
@@ -576,7 +646,59 @@ void startVulkan() {
 
 	result = vkCreateCommandPool(device, &commandPoolCreateinfo, nullptr, &commandPool);
 	ASSERT_VULKAN(result);
+}
 
+void recordCommandBuffers(VkCommandBufferBeginInfo* commandBufferBeginInfo) {
+	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
+		result = vkBeginCommandBuffer(commandBuffers[i], commandBufferBeginInfo);
+		ASSERT_VULKAN(result);
+
+
+		VkRenderPassBeginInfo renderPassBeginInfo;
+		renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassBeginInfo.pNext = nullptr;
+		renderPassBeginInfo.renderPass = renderPass;
+		renderPassBeginInfo.framebuffer = framebuffers[i];
+		renderPassBeginInfo.renderArea.offset = { 0, 0 };
+		renderPassBeginInfo.renderArea.extent = { globalWidth, globalHeight };
+
+		VkClearValue clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+		renderPassBeginInfo.clearValueCount = 1;
+		renderPassBeginInfo.pClearValues = &clearValue;
+
+
+		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+		VkViewport viewport;
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = globalWidth;
+		viewport.height = globalHeight;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+
+		vkCmdSetViewport(commandBuffers[i], 0, 1, &viewport);
+
+		VkRect2D scissor;
+		scissor.offset = { 0, 0 };
+		scissor.extent = { globalWidth, globalHeight };
+
+		vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
+
+		vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+		vkCmdEndRenderPass(commandBuffers[i]);
+
+
+		result = vkEndCommandBuffer(commandBuffers[i]);
+		ASSERT_VULKAN(result);
+	}
+}
+
+void createCommandandRecordBuffers() {
 	VkCommandBufferAllocateInfo commandBufferAllocateInfo;
 	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	commandBufferAllocateInfo.pNext = nullptr;
@@ -594,38 +716,10 @@ void startVulkan() {
 	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 	commandBufferBeginInfo.pInheritanceInfo = nullptr;
 
-	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
-		result = vkBeginCommandBuffer(commandBuffers[i], &commandBufferBeginInfo);
-		ASSERT_VULKAN(result);
+	recordCommandBuffers(&commandBufferBeginInfo);
+}
 
-
-		VkRenderPassBeginInfo renderPassBeginInfo;
-		renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassBeginInfo.pNext = nullptr;
-		renderPassBeginInfo.renderPass = renderPass;
-		renderPassBeginInfo.framebuffer = framebuffers[i];
-		renderPassBeginInfo.renderArea.offset = { 0, 0 };
-		renderPassBeginInfo.renderArea.extent = { WIDTH, HEIGHT };
-
-		VkClearValue clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-		renderPassBeginInfo.clearValueCount = 1;
-		renderPassBeginInfo.pClearValues = &clearValue;
-
-
-		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-		vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
-
-		vkCmdEndRenderPass(commandBuffers[i]);
-
-
-		result = vkEndCommandBuffer(commandBuffers[i]);
-		ASSERT_VULKAN(result);
-	}
-
+void createSemaphores() {
 	VkSemaphoreCreateInfo semaphoreCreateInfo;
 	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	semaphoreCreateInfo.pNext = nullptr;
@@ -635,12 +729,62 @@ void startVulkan() {
 	ASSERT_VULKAN(result);
 	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreRenderDone);
 	ASSERT_VULKAN(result);
+}
+
+void startVulkan() {
+	createInstance();
+	printInstanceLayers();
+	printInstanceExtensions();
+	
+	result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+	ASSERT_VULKAN(result);
+
+	printStatsOfAllPhysicalDevices();
+	createLogicalDevice();
+	vkGetDeviceQueue(device, 0, 0, &queue);
+	checkSurfaceSupport();
+	createSwapchain();
+	createImageViews();
+	createRenderpass();
+	createPipeline();
+	createFrameBuffers();
+	createCommandPool();
+	createCommandandRecordBuffers();
+	createSemaphores();
+}
+
+void recreateSwapchain() {
+	vkDeviceWaitIdle(device);
 
 
-	delete[] layers;
-	delete[] extentions;
-	delete[] swapchainImages;
-	delete[] physicalDevices;
+	vkFreeCommandBuffers(device, commandPool, amountOfImagesInSwapchain, commandBuffers);
+	delete[] commandBuffers;
+
+	vkDestroyCommandPool(device, commandPool, nullptr);
+
+	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
+		vkDestroyFramebuffer(device, framebuffers[i], nullptr);
+	}
+	delete[] framebuffers;
+
+	for (int i = 0; i < amountOfImagesInSwapchain; i++) {
+		vkDestroyImageView(device, imageViews[i], nullptr);
+	}
+	delete[] imageViews;
+
+	vkDestroyRenderPass(device, renderPass, nullptr);
+
+
+	VkSwapchainKHR oldSwapchain = swapchain;
+
+	createSwapchain();
+	createImageViews();
+	createRenderpass();
+	createFrameBuffers();
+	createCommandPool();
+	createCommandandRecordBuffers();
+
+	vkDestroySwapchainKHR(device, oldSwapchain, nullptr);
 }
 
 void drawFrame() {
@@ -719,6 +863,7 @@ void shutdownVulkan() {
 
 void shutdownGLFW() {
 	glfwDestroyWindow(window);
+	glfwTerminate();
 }
 
 
