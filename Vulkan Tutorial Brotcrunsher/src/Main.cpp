@@ -716,6 +716,18 @@ void recordCommandBuffers(VkCommandBufferBeginInfo* commandBufferBeginInfo) {
 	}
 }
 
+void createVertexBuffer() {
+	VkBufferCreateInfo bufferCreateInfo;
+	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferCreateInfo.pNext = nullptr;
+	bufferCreateInfo.flags = 0;
+	bufferCreateInfo.size = sizeof(Vertex) * verticies.size();
+	bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	bufferCreateInfo.queueFamilyIndexCount = 0;
+	bufferCreateInfo.pQueueFamilyIndices = nullptr;
+}
+
 void createCommandandRecordBuffers() {
 	VkCommandBufferAllocateInfo commandBufferAllocateInfo;
 	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -733,6 +745,8 @@ void createCommandandRecordBuffers() {
 	commandBufferBeginInfo.pNext = nullptr;
 	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 	commandBufferBeginInfo.pInheritanceInfo = nullptr;
+
+	createVertexBuffer();
 
 	recordCommandBuffers(&commandBufferBeginInfo);
 }
