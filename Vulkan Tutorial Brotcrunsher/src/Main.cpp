@@ -730,6 +730,9 @@ void createVertexBuffer() {
 
 	result = vkCreateBuffer(device, &bufferCreateInfo, nullptr, &vertexBuffer);
 	ASSERT_VULKAN(result);
+
+	VkMemoryRequirements memoryRequirements;
+	vkGetBufferMemoryRequirements(device, vertexBuffer, &memoryRequirements);
 }
 
 void createCommandandRecordBuffers() {
