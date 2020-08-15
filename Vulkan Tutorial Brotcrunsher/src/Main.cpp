@@ -30,6 +30,7 @@ VkCommandPool commandPool;
 VkCommandBuffer* commandBuffers;
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderDone;
+VkBuffer vertexBuffer;
 
 const VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
 
@@ -726,6 +727,9 @@ void createVertexBuffer() {
 	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	bufferCreateInfo.queueFamilyIndexCount = 0;
 	bufferCreateInfo.pQueueFamilyIndices = nullptr;
+
+	result = vkCreateBuffer(device, &bufferCreateInfo, nullptr, &vertexBuffer);
+	ASSERT_VULKAN(result);
 }
 
 void createCommandandRecordBuffers() {
@@ -863,6 +867,8 @@ void gameLoop() {
 
 void shutdownVulkan() {
 	vkDeviceWaitIdle(device); // stellt sicher das alle Arbeit abgearbeitet wurde
+
+	vkDestroyBuffer(device, vertexBuffer, nullptr);
 
 	vkDestroySemaphore(device, semaphoreImageAvailable, nullptr);
 	vkDestroySemaphore(device, semaphoreRenderDone, nullptr);
