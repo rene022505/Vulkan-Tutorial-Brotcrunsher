@@ -57,6 +57,21 @@ public:
 
 		return vertexInputBindingDescription;
 	}
+
+	static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
+		std::vector<VkVertexInputAttributeDescription> vertexInputAttributeDescriptions(2);
+		vertexInputAttributeDescriptions[0].location = 0;
+		vertexInputAttributeDescriptions[0].binding = 0;
+		vertexInputAttributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		vertexInputAttributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+		vertexInputAttributeDescriptions[1].location = 1;
+		vertexInputAttributeDescriptions[1].binding = 0;
+		vertexInputAttributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		vertexInputAttributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		return vertexInputAttributeDescriptions;
+	}
 };
 
 std::vector<Vertex> verticies = {
