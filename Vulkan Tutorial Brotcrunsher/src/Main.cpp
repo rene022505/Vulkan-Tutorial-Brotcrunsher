@@ -31,6 +31,7 @@ VkCommandBuffer* commandBuffers;
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderDone;
 VkBuffer vertexBuffer;
+VkDeviceMemory vertexBufferDeviceMemory;
 
 const VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
 
@@ -77,8 +78,8 @@ public:
 
 std::vector<Vertex> verticies = {
 	Vertex({ 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f }),
-	Vertex({ 0.5f, 5.0f },  { 0.0f, 1.0f, 0.0f }),
-	Vertex({ -0.5f, 5.0f }, { 0.0f, 0.0f, 1.0f })
+	Vertex({ 0.5f, 0.5f },  { 0.0f, 1.0f, 0.0f }),
+	Vertex({ -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f })
 };
 
 
@@ -346,8 +347,6 @@ void checkSurfaceSupport() {
 		std::cerr << "Surface not supported!" << std::endl;
 		__debugbreak();
 	}
-
-	delete[] physicalDevices;
 }
 
 void createSwapchain() {
@@ -707,6 +706,9 @@ void recordCommandBuffers(VkCommandBufferBeginInfo* commandBufferBeginInfo) {
 
 		vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
 
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, &vertexBuffer, offsets);
+
 		vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffers[i]);
@@ -715,6 +717,20 @@ void recordCommandBuffers(VkCommandBufferBeginInfo* commandBufferBeginInfo) {
 		result = vkEndCommandBuffer(commandBuffers[i]);
 		ASSERT_VULKAN(result);
 	}
+}
+
+uint32_t findMemoryTypeIndex(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(physicalDevices[0], &physicalDeviceMemoryProperties);  // TODO civ
+
+	for (uint32_t i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; i++) {
+		if ((typeFilter & (1 << i)) && (physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+			return i;
+		}
+	}
+
+	__debugbreak();
+	throw std::runtime_error("Found no correct memory type!");
 }
 
 void createVertexBuffer() {
@@ -733,6 +749,22 @@ void createVertexBuffer() {
 
 	VkMemoryRequirements memoryRequirements;
 	vkGetBufferMemoryRequirements(device, vertexBuffer, &memoryRequirements);
+
+	VkMemoryAllocateInfo memoryAllocateInfo;
+	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocateInfo.pNext = nullptr;
+	memoryAllocateInfo.allocationSize = memoryRequirements.size;
+	memoryAllocateInfo.memoryTypeIndex = findMemoryTypeIndex(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	result = vkAllocateMemory(device, &memoryAllocateInfo, nullptr, &vertexBufferDeviceMemory);
+	ASSERT_VULKAN(result);
+
+	vkBindBufferMemory(device, vertexBuffer, vertexBufferDeviceMemory, 0);
+
+	void* rawData;
+	vkMapMemory(device, vertexBufferDeviceMemory, 0, bufferCreateInfo.size, 0, &rawData);
+	memcpy(rawData, verticies.data(), bufferCreateInfo.size);
+	vkUnmapMemory(device, vertexBufferDeviceMemory);
 }
 
 void createCommandandRecordBuffers() {
@@ -871,7 +903,10 @@ void gameLoop() {
 void shutdownVulkan() {
 	vkDeviceWaitIdle(device); // stellt sicher das alle Arbeit abgearbeitet wurde
 
+	vkFreeMemory(device, vertexBufferDeviceMemory, nullptr);
 	vkDestroyBuffer(device, vertexBuffer, nullptr);
+
+	delete[] physicalDevices;
 
 	vkDestroySemaphore(device, semaphoreImageAvailable, nullptr);
 	vkDestroySemaphore(device, semaphoreRenderDone, nullptr);
